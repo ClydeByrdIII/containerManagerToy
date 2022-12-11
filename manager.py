@@ -126,8 +126,9 @@ class ContainerManagerHandler:
         # container info must exist and be ready
         self._checkExists(request.tag)
         self._checkInStates(request.tag, [ContainerState.READY])
-        # should not be possible for assistent manager to exist at this point
-        assert request.tag not in self.assistentManagers
+        # if an assistent manager exists, then start was already called
+        if request.tag in self.assistentManagers:
+            raise InvalidOperation(f"container: {request.tag} is already starting")
         # create assistent manager object with empty run state (no pid or workload pid)
         self.assistentManagers[request.tag] = AssistentManagerInfo(
             request.tag, request.command

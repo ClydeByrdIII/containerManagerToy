@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import shutil
 import signal
 import sys
 
@@ -9,24 +10,9 @@ sys.path.append("gen-py")
 from time import sleep
 
 from container_manager import ContainerManager
-from client_utils import thriftClient
-
-
-def waitForServer(port):
-    """
-    busy loop until server is up
-    Timing out and failure handling would be a nice improvement
-    e.g exit after timeout, the parent process gets a sigchld,
-    parent process exits if it sees executor is dead
-    """
-    while True:
-        try:
-            with thriftClient(port) as client:
-                break
-        except Exception:
-            sleep(0.5)
-
-
+from client_utils import thriftClient, waitForServer
+from container_utils import recursivelyDeleteCgroups, generateUnshareCommand
+    
 class Executor:
     def __init__(self, port: int, cgPath: str, amBinPath: str):
         # port to make thrift requests to
@@ -80,17 +66,19 @@ class Executor:
         r, w = os.pipe()
         # fork process
         # under a real implementation we would be using clone and namespace flags
-        # to create the assistent manager in it's own namespaces (usually pid and mount)g
-        # but in python it's non trivial to use clone(2) system call
-        # primary benefits is that if the assistent manager (pid 1 in it's pid namespace)
+        # to create the assistent manager in its own namespaces (usually pid and mount)
+        # but in python it's non trivial to use clone(2) system call so we use unshare(1)
+        # which requires an additional fork/process to create a new pid namespace
+        # Benefits of a new pid ns is that if the assistent manager (pid 1 in its pid namespace)
         # dies so would the container workload due to its parent pid namespace being deleted
         # also mount isolation/propagation semantics wouldn't affect the root mount namespace
         pid = os.fork()
         if pid == 0:
             # This is the child process
             waitForParent(r, w, tag)
-            # exec assistent manager
-            os.execv(self.amBinPath, [self.amBinPath, str(self.port), tag])
+            # exec assistent manager in a new pid ns 
+            cmd = generateUnshareCommand([self.amBinPath, str(self.port), tag], usePidNs=True)
+            os.execv(cmd[0], cmd)
             # if we reach here something bad happened
             sys.exit(1)
         else:
@@ -99,13 +87,15 @@ class Executor:
             # should not be possible
             assert pid not in self.children
             # track cpid and it's assistent manager tag
+            # NOTE cpid is actually the pid of unshare that lives until 
+            # it's child process (the assistent) dies and exits the same way
             self.children[pid] = tag
             prepareChild(pid, self.cgroupParentPath, tag)
             # parent writes to the pipe
             os.write(w, b"1")
             os.close(w)
             print(f"Executor: Started assistent manager with tag '{tag}'")
-
+    
     def _handleZombies(self):
         """
         If there is a zombie child, we need to call one of the wait() family
@@ -128,7 +118,7 @@ class Executor:
             )
             # recursively clean up cgroup "/{cgPath}/{ctag}"
             dirName = os.path.join(self.cgroupParentPath, self.children[cpid])
-            os.removedirs(dirName)
+            recursivelyDeleteCgroups(dirName)
             del self.children[cpid]
 
     """ why don't we drive state in executor?? """

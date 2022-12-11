@@ -11,6 +11,7 @@ sys.path.append("gen-py")
 from time import sleep
 
 from client_utils import thriftClient
+from container_utils import generateUnshareCommand
 
 from container_manager.ttypes import (
     ReportContainerStatusRequest,
@@ -57,8 +58,8 @@ class Assistent:
         self.port = port
         # identifier for assistent and container
         self.tag = tag
-        # pid of container workload
-        self.cpid = None
+        # proc of container workload
+        self.cproc = None
         # get container setup info from manager
         self.info = None
 
@@ -91,11 +92,12 @@ class Assistent:
         to use in python, so we aren't really making a "container" by some
         defintion of container that usually is definied
         """
-        # we're keeping it simple and just starting a subprocess that shares
-        # the cgroup with the assistent
+        # we're keeping it simple and just starting a subprocess that unshares
+        # in to new namespaces unfortunately the pid will be of unshare monitor
+        # process
         cmdArgs = [self.info.command.cmd] + self.info.command.arguments
-        p = subprocess.Popen(cmdArgs)
-        self.cpid = p.pid
+        cmd = generateUnshareCommand(cmdArgs, isContainer=True)
+        self.cproc = subprocess.Popen(cmd)
 
     def _zombieCheck(self):
         """
@@ -126,29 +128,38 @@ class Assistent:
         If we can't connect to the container manager, just ignore it
 
         Exercise:
-        1) therer should be a timeout for how long an assistent will wait
+        1) there should be a timeout for how long an assistent will wait
         for the manager to come back on line; something long like 12hrs
         to avoid brief manager flakiness
         """
         request = ReportContainerStatusRequest()
         request.tag = self.tag
         request.state = ContainerState.RUNNING if not info else ContainerState.DEAD
+        # these pids are relative to the assistent manager's pid namespace and
+        # not the root namespace
         request.pid = os.getpid()
-        request.workloadPid = self.cpid
+        request.workloadPid = self.cproc.pid
         try:
             with thriftClient(self.port) as client:
                 response = client.reportContainerStatus(request)
                 if response.status == ManagerResponse.ABORT:
                     amLog(self.tag, "Container manager does not recognize us! Abort!!")
-                    # send signal to child process (ungracefully)
-                    # and monitor child for it's death
-                    os.kill(self.cpid, signal.SIGKILL)
-                    # exit uncleanly
+                    # exit uncleanly; do not bother sending sigkill to container
+                    # assistent manager exiting will cause all processes in the pid
+                    # ns to be sent sigkill by the kernel
                     sys.exit(1)
                 elif response.status == ManagerResponse.STOP:
-                    # send signal to child process (gracefully)
-                    # and monitor child for it's death
-                    os.kill(self.cpid, signal.SIGTERM)
+                    # send sigterm to all processes
+                    # and monitor child for its death
+                    # send signal to all processes in our pid ns (except us, pid 1)
+                    # this would be dangerous if we weren't in our own pid ns
+                    # NOTE: Ideally we should be sending sigterm gracefully
+                    # but unfortunately application containers (e.g docker model)
+                    # have this fun problem of pid 1 in a namespace not having 
+                    # signal handlers and thus it's up to the user to specify
+                    # a program with signal handling in place
+                    # e.g https://petermalmgren.com/signal-handling-docker/
+                    os.kill(-1, signal.SIGKILL)
         except Exception as e:
             # this can occur if there's an issue connection to container manager
             # e.g container manager is down. We should log and wait for container
@@ -164,7 +175,7 @@ class Assistent:
 
             # exit loop if child is dead
             if cInfo:
-                amLog(self.tag, f"Container workload {self.cpid} exited with results: {cInfo}")
+                amLog(self.tag, f"Container workload {self.cproc.pid} exited with results: {cInfo}")
                 break
 
             sleep(1)

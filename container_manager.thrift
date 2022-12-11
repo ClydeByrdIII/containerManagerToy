@@ -1,7 +1,7 @@
- /**
-  * Thrift files can namespace, package, or prefix their output in various
-  * target languages.
-  */
+/**
+ * Thrift files can namespace, package, or prefix their output in various
+ * target languages.
+ */
  
 namespace cpp container_manager
  
@@ -25,7 +25,7 @@ struct ExitInfo {
     2: i32 status
 }
 
-/*
+/**
  * READY: A container can be "ready" to be run (aka runnable) meaning the container manager
  * has prepared everything for the container to be invoked
  * 
@@ -49,7 +49,7 @@ struct ContainerInfo {
     3: ExitInfo exitInfo
 }
 
-/*
+/**
  * the input of exec(2) family of functions typically include a cmd and args.
  * Excercise: include a list of linux capabilities the command should have in
  * order to run (and perhaps drop all other unneeded ones)
@@ -66,11 +66,11 @@ struct AssistentManagerInfo {
     4: i32 workloadPid // pid of the container workload (aka command's pid)
 }
 
-/*
-  * As similar as these request structs seem, in practice each of these requests
-  * can be customized with various options to determine how the container manager
-  * should proceed. As this is purely for educational purposes and meant to be extended
-  * I shall keep them separated
+/**
+ * As similar as these request structs seem, in practice each of these requests
+ * can be customized with various options to determine how the container manager
+ * should proceed. As this is purely for educational purposes and meant to be extended
+ * I shall keep them separated
  */
 
 struct CreateContainerRequest {
@@ -102,7 +102,7 @@ struct ContainerIdResponse {
     1: list<string> tags
 }
 
-/*
+/**
  * The container manager will respond to the assistent manager with
  * OKAY if there's nothing to do
  * STOP if the container should be stopping
@@ -144,7 +144,7 @@ exception InvalidOperation {
  * for container management
  */
 service ContainerManager {
-    /* API for a human/ scheduler to use */
+    /* API for a human / scheduler to use */
 
     // Create a container instance in the READY state
     void createContainer(1: CreateContainerRequest request) throws (1:InvalidOperation error),
@@ -161,19 +161,19 @@ service ContainerManager {
     // List all known container instances (in any state)
     ListContainerResponse listContainers(1: ListContainerRequest request) throws (1:InvalidOperation error),
 
-    /* API for assistent container manager / executor to use */
+    /* API for the executor to use */
     
-    // empty the queue of ready containers (for transitioning to running)
+    // Empty the queue of ready containers (for transitioning to running)
     ContainerIdResponse dequeueReadyContainers(),
 
-    // get all running containers
+    // Get all running containers
     ContainerIdResponse getRunningContainers(),
 
-    // get information about a certain manager
+    /* API for the assistent container manager to use */
+ 
+    // Get information about a certain manager
     AssistentManagerStatusResponse getAssistentManagerStatus(1: AssistentManagerStatusRequest request),
 
-    // report the container's status to the container manager
-    ReportContainerStatusResponse reportContainerStatus(1: ReportContainerStatusRequest request),
-
-
+    // Report the container's status to the container manager
+    ReportContainerStatusResponse reportContainerStatus(1: ReportContainerStatusRequest request)
 }
