@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import os
-from typing import List
+import signal
+from typing import List, Set
 
+""" Various utilities to managed namespaces and cgroups """
 def recursivelyDeleteCgroups(cgroupPath: os.PathLike) -> None:
     """
     Delete leaf nodes before parents and we want to ignore the files
@@ -14,6 +16,35 @@ def recursivelyDeleteCgroups(cgroupPath: os.PathLike) -> None:
         # remove the root directory
         os.rmdir(root)
 
+def getCurrentCgroup():
+    with open(f"/proc/self/cgroup", "r") as f:
+        cgroupEntry = f.readline()
+        _, _, relCgroupPath = cgroupEntry.split(":")
+        return os.path.join("/sys/fs/cgroup", relCgroupPath.lstrip("/").rstrip())
+
+def getPidsFromCgroup(cgroupPath: os.PathLike) -> Set[int]:
+    pids = set()
+    filename = os.path.join(cgroupPath, "cgroup.procs")
+    with open(filename, "r") as f:
+        # for every line in cgroup.procs, convert to int and store
+        for line in f.readlines():
+            pids.add(int(line))
+    return pids
+
+def sendSignalToCgroup(cgroupPath: os.PathLike, sig: signal.Signals, pidsToIgnore: List[int]=None) -> None:
+    pids = getPidsFromCgroup(cgroupPath)
+    # don't want to send signal to ourselves
+    pids.discard(os.getpid())
+    
+    # ignore whatever else requested
+    if pidsToIgnore:
+        for pid in pidsToIgnore:
+            pids.discard(pid)
+    
+    for pid in pids:
+        # send signal to the rest
+        os.kill(pid, sig)
+        
 def generateUnshareCommand(cmd: List[str], usePidNs: bool = False, isContainer: bool = False) -> List[str]:
     """ 
     Generate an unshare(1) command (which is based on unshare(2) system call)
@@ -23,12 +54,8 @@ def generateUnshareCommand(cmd: List[str], usePidNs: bool = False, isContainer: 
     
     We always provide --mount, because Assistent manager nor container mounting 
     should affect root root namespace
-    
-    We wrap all invocations in /bin/bash to get around the pid 1 semantics of no
-    signal handleres 
     """
    
-    # command =["/bin/bash", "-c"]
     command = ["/usr/bin/unshare", "--mount"]
     if usePidNs or isContainer:
         # If want to execute in new pid namespace, unshare will need to fork

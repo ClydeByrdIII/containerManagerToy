@@ -11,7 +11,7 @@ sys.path.append("gen-py")
 from time import sleep
 
 from client_utils import thriftClient
-from container_utils import generateUnshareCommand
+from container_utils import generateUnshareCommand, getCurrentCgroup, sendSignalToCgroup
 
 from container_manager.ttypes import (
     ReportContainerStatusRequest,
@@ -45,15 +45,18 @@ class Assistent:
 
     As this is written in python rather than a more desirable language
     like go/c++/c/rust, it's non-trivial to use system calls like clone(2)
-    so this doesn't spawn a "true" container, but it gets the container management
-    fundamentals across
+    so we use unshare(1) as a shim, resulting in the consequence that there
+    is an extra fork/process in order for a new pid namespace to be used
+    thus some extra leg work needs to be performed to get the pid of the
+    container workload
 
-    Excercise:
-    1) Support all of the above
-    2) support using clone(2) (possibly via c++/go/rust rewrite)
+    Exercise:
+    1) we should re-direct the container's stderr/stdout to a file or elsewhere
+    2) Support the rest of the suggestions above
+    3) support using clone(2) (possibly via c++/go/rust rewrite)
     """
 
-    def __init__(self, port: int, tag: str):
+    def __init__(self, port: int, tag: str, parentCgroupPath: str):
         # port for container manager
         self.port = port
         # identifier for assistent and container
@@ -62,7 +65,11 @@ class Assistent:
         self.cproc = None
         # get container setup info from manager
         self.info = None
-
+        # get current cgroup of this process
+        self.cgroupPath = getCurrentCgroup()
+        # Since this is a toy, we don't want to send signals to anything but
+        # the cgroup for our containers
+        assert self.cgroupPath.startswith(parentCgroupPath)
         try:
             with thriftClient(self.port) as client:
                 response = client.getAssistentManagerStatus(
@@ -84,17 +91,9 @@ class Assistent:
         just for the container, filesystem preparations, ulimit adjustments,
         log handling, etc
 
-        Then create the process and move to new cgroup
-
         NOTE: This is much easier to do with https://lwn.net/Articles/807882/
         which requires clone(2)
-        This is a mock assistent and the clone(2) system call is non trivial
-        to use in python, so we aren't really making a "container" by some
-        defintion of container that usually is definied
         """
-        # we're keeping it simple and just starting a subprocess that unshares
-        # in to new namespaces unfortunately the pid will be of unshare monitor
-        # process
         cmdArgs = [self.info.command.cmd] + self.info.command.arguments
         cmd = generateUnshareCommand(cmdArgs, isContainer=True)
         self.cproc = subprocess.Popen(cmd)
@@ -135,31 +134,23 @@ class Assistent:
         request = ReportContainerStatusRequest()
         request.tag = self.tag
         request.state = ContainerState.RUNNING if not info else ContainerState.DEAD
-        # these pids are relative to the assistent manager's pid namespace and
-        # not the root namespace
         request.pid = os.getpid()
+        # unfortunately this is the pid of unshare
         request.workloadPid = self.cproc.pid
+        request.cgroupPath = self.cgroupPath
         try:
             with thriftClient(self.port) as client:
                 response = client.reportContainerStatus(request)
                 if response.status == ManagerResponse.ABORT:
                     amLog(self.tag, "Container manager does not recognize us! Abort!!")
-                    # exit uncleanly; do not bother sending sigkill to container
-                    # assistent manager exiting will cause all processes in the pid
-                    # ns to be sent sigkill by the kernel
+                    # ungracefully kill the container workload
+                    sendSignalToCgroup(self.cgroupPath, signal.SIGKILL)
+                    # uncleanly exit the assistent
                     sys.exit(1)
                 elif response.status == ManagerResponse.STOP:
-                    # send sigterm to all processes
+                    # send sigterm to all processes in the cgroup (minus caller)
                     # and monitor child for its death
-                    # send signal to all processes in our pid ns (except us, pid 1)
-                    # this would be dangerous if we weren't in our own pid ns
-                    # NOTE: Ideally we should be sending sigterm gracefully
-                    # but unfortunately application containers (e.g docker model)
-                    # have this fun problem of pid 1 in a namespace not having 
-                    # signal handlers and thus it's up to the user to specify
-                    # a program with signal handling in place
-                    # e.g https://petermalmgren.com/signal-handling-docker/
-                    os.kill(-1, signal.SIGKILL)
+                    sendSignalToCgroup(self.cgroupPath, signal.SIGTERM)
         except Exception as e:
             # this can occur if there's an issue connection to container manager
             # e.g container manager is down. We should log and wait for container
@@ -175,7 +166,10 @@ class Assistent:
 
             # exit loop if child is dead
             if cInfo:
-                amLog(self.tag, f"Container workload {self.cproc.pid} exited with results: {cInfo}")
+                amLog(
+                    self.tag,
+                    f"Container workload {self.cproc.pid} exited with results: {cInfo}",
+                )
                 break
 
             sleep(1)
@@ -189,10 +183,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "tag", type=str, help="identifier for container and assistent manager"
     )
+    parser.add_argument(
+        "parent_cgroup",
+        metavar="parent-cgroup",
+        type=str,
+        help="root cgroup to start containers",
+    )
     args = parser.parse_args()
     tag = args.tag
     port = args.port
-    assistent = Assistent(port, tag)
+    cgroup = args.parent_cgroup
+    assistent = Assistent(port, tag, cgroup)
     # set up container
     assistent.startContainer()
     # monitor the container workload until it's dead

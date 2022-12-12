@@ -255,6 +255,7 @@ class ContainerManagerHandler:
             amInfo = self.assistentManagers[request.tag]
             amInfo.pid = request.pid
             amInfo.workloadPid = request.workloadPid
+            amInfo.cgroupPath = request.cgroupPath
             # update container info metadata
             self.containerInfos[request.tag].state = ContainerState.RUNNING
             self.runningContainers.add(request.tag)

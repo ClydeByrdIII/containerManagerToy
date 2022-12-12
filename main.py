@@ -54,7 +54,7 @@ if __name__ == "__main__":
         "--assistent-manager-bin",
         type=str,
         help="path to the assistent manager binary",
-        default="./mock_assistent.py",
+        default="./assistent_manager.py",
     )
     args = parser.parse_args()
 

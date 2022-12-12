@@ -64,6 +64,7 @@ struct AssistentManagerInfo {
     2: Command command // command the assistent  should execute
     3: i32 pid // max pid value is 2^22 (see man 5 proc) which fits in 32 bits
     4: i32 workloadPid // pid of the container workload (aka command's pid)
+    5: string cgroupPath // path of the assistent managers cgroup
 }
 
 /**
@@ -120,7 +121,8 @@ struct ReportContainerStatusRequest {
     2: ContainerState state
     3: i32 pid
     4: i32 workloadPid
-    5: ExitInfo exitInfo
+    5: string cgroupPath
+    6: ExitInfo exitInfo
 }
 
 struct ReportContainerStatusResponse {
