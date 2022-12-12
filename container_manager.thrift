@@ -30,6 +30,8 @@ struct ExitInfo {
  * has prepared everything for the container to be invoked
  * 
  * RUNNING: A container is currently running
+ *
+ * STOPPING: A container is in the process of shutting down
  * 
  * DEAD: A container has exited or was killed by a signal
  * 
