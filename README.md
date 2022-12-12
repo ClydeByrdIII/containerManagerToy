@@ -92,6 +92,10 @@ It will live even when the container manager is dead or temporarily missing. It 
 For this project there were some design decisions at play that greatly influences the system.
 Surprisingly the language is not the biggest issue (although it caused some inconviences).
 
+Here is the big picture
+
+![entities](https://user-images.githubusercontent.com/1676822/207086317-8e4baf17-bca0-486f-9cad-f0671f7a8d7e.png)
+
 ### 1 ) The desire to get something correct and running 
 This played the biggest part. In the ensuing mini-sections I'll detail where this applied.
 
@@ -113,12 +117,7 @@ Given more time, I would make a multi-threaded/process state machine that is thr
 
 For now every client must close the connection after their call in order for the other entities to progress the state machine.
 
-### 4) File system isolation is not supported
-
-Due to a lack of time, file system isolation using chroot(2) / pivot-root(2) / mount (2) MS_MOVE was not implemented, but could be done simply using
-a cached os tree (like alpine linux or some minimal distribution), creating a unique root tree for each container, copying the os tree to each root, and then pivot rooting the container to that root tree. Similar to what I did in my slides.
-
-### 5) These are application containers
+### 4) These are application containers
 
 This means that it's the responsibility of the user to supply commands that will probably handle signals.
 Due to containers running in their own pid namespace, their command will run as pid 1 in that namespace, meaning it will by default ignore all signals.
@@ -126,17 +125,38 @@ The user will need code to explicitly re-instate signals for it to be able to gr
 
 This is a common problem in docker, solved in various ways, one of which is [dumb-init](https://engineeringblog.yelp.com/2016/01/dumb-init-an-init-for-docker.html)
 
-### 6) Container metadata is not persisted across restarts
+### 5) The state machine only does what it's told
+
+Rather than having a very active server that tries to do many things, such as actively preparing the filesystem or outward connections to assistent managers, we keep it as dumb as possible.
+
+State transitions must be enacted, by some outside entity such as a client, executor, or assistent manager. This means in the abscence of an entity 
+making requests to transistion states, the state machine will do nothing.
+
+This is an important trade off when it comes to having a scheduler manage the container manager. You don't want the container manager making too many local decisions, as it can ruin the state in the scheduler (or whatever controlling entity).
+
+### 6) Push vs Pull
+
+The tradeoffs of a push vs pull architecture in monitoring are [well discussed](https://blog.sflow.com/2012/08/push-vs-pull.html), so I won't go too deep in to it.
+
+We choose to have assistent managers report to the singular container manager rather than the container manager polling the assistent managers.
+This allows assistent managers to know relatively quickly if they've gone rogue / LOST.
+
+### 7) File system isolation is not supported
+
+Due to a lack of time, file system isolation using chroot(2) / pivot-root(2) / mount (2) MS_MOVE was not implemented, but could be done simply using
+a cached os tree (like alpine linux or some minimal distribution), creating a unique root tree for each container, copying the os tree to each root, and then pivot rooting the container to that root tree. Similar to what I did in my slides.
+
+### 8) Container metadata is not persisted across restarts
 
 A container manager should be robust and have the ability to recover state on recovery/restart.
 Even in situations where all the state is wiped, it could be beneficial for the container manager to detect rogue containers and clean them up.
 In our implementation we deferred persisting metadata due to time, but we did implement a mechanism for assistent managers to ABORT when not recognized by the container manager
 
-### 7) Nothing initiates LOST state transitions (yet)
+### 9) Nothing initiates LOST state transitions (yet)
 
 Due to time, LOST state transitioning was not implemented. There's many reasons for a assistent manager to go unresponsive. Detecting such cases is the responsibility of the executor, since the assistent can't do so on it's own (otherwise it wouldn't be LOST).
 
-### 8) There is one thrift handler for all entities
+### 10) There is one thrift handler for all entities
 
 The scheduler, executor, and assistent manager all use different thrift calls. And for the latter 2, they should use unix domain sockets for communication since they should all be local. They're currently one handler and TCP sockets because of time.
 
