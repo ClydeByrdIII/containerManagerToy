@@ -3,8 +3,32 @@ fundamentals.
 
 ## Testing
 
+Tests were executed on a Debian 11 aarch64 (virtual machine) 
+Testing environment
+```
+# cat /etc/os-release 
+PRETTY_NAME="Debian GNU/Linux 11 (bullseye)"
+NAME="Debian GNU/Linux"
+VERSION_ID="11"
+VERSION="11 (bullseye)"
+VERSION_CODENAME=bullseye
+ID=debian
+HOME_URL="https://www.debian.org/"
+SUPPORT_URL="https://www.debian.org/support"
+BUG_REPORT_URL="https://bugs.debian.org/"
+# uname -a
+Linux debian 5.10.0-18-arm64 #1 SMP Debian 5.10.140-1 (2022-09-02) aarch64 GNU/Linux
+```
+
+## package requirements 
+```
+sudo apt-get install automake bison flex g++ git libboost-all-dev libevent-dev libssl-dev libtool make pkg-config
+sudo apt-get install libthrift-dev thrift-compiler python3-thrift
+```
 ### State Machine Tests
 ```
+# generate the thrift code before executing any thing
+thrift -r --gen py container_manager.thrift 
 # the first test spawns it's own manager server
 python3 state_machine_test.py
 # the second test needs a manager server to be up already
