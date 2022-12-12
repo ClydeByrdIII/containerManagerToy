@@ -24,13 +24,14 @@ from container_manager.ttypes import (
     ManagerResponse,
 )
 
+
 class ContainerManagerHandler:
     """
     API Handler of the container manager thrift service
 
     This is the API to drive the state machine of a container,
     moving it from the various container states
-    
+
     A cli user/scheduler will use create/start/list/stop/delete calls
     The assistent container manager will only use get/report status calls
 
@@ -40,7 +41,7 @@ class ContainerManagerHandler:
 
     Additionally we are leaving all process killing/management up to the assistent
     container manager. This is problematic due to the many non-user induced events
-    on a system that could kill or make unresponsive, the assistent manager
+    on a system that could cause the assistent manager to die or be unresponsive
     (e.g bugs, kernel oom killer, D state processes, or resource starvation) thus
     in this implementation the container manager would be ignorant of LOST containers
 
@@ -49,11 +50,9 @@ class ContainerManagerHandler:
     2) [easy] Persist in memory objects some where (such as rocksdb)
     As is, when the container manager restarts all existing containers will be
     unmanaged and on next status report will be asked to ABORT
-    3) [easy] If an assistent manager doesn't report back after a certain period
-    of time, consider it LOST
-    4) [easy] API transactions aren't secure; We should use ssl
-    5) [easy] executor/assistent manager functions should be in a separate
-    Handler/server (thread if not in python) and we should be using unix domain
+    3) [easy] API transactions aren't secure; We should use ssl
+    4) [easy] executor/assistent manager functions should be in a separate
+    handler/server (thread, if not in python) and we should be using unix domain
     sockets for communication between the local entities
     """
 
@@ -63,7 +62,7 @@ class ContainerManagerHandler:
         # assistent managers setup and babysit the container workload
         self.assistentManagers = {}
         # the executor process will pull from this queue and start
-        # assistent managers
+        # assistent managers (which then start the containers)
         self.runnable = []
         # active container accounting
         self.runningContainers = set()
@@ -91,13 +90,13 @@ class ContainerManagerHandler:
         """
         Public:
         Create initial container metadata in the manager
-        
+
         State transitions:
         The container state goes from unknown -> READY
-            
+
         Internal Notes:
-        For this implementation, we keep it simple, but things such as container
-        filesystem preparation could go here
+        For this implementation, we keep it simple, but things such as queueing
+        container filesystem preparation could go here
         """
         self._checkDuplicates(request.tag)
         # initialize container info to the ready state
@@ -111,15 +110,15 @@ class ContainerManagerHandler:
         Enqueue the container to the runnable queue, where later an executor
         will dequeue the container and start it. The user will have to poll
         until the container is in a running state, if the user cares to know.
-        
+
         State Transitions:
         The container state does not change
         The container is made runnable though, which means it's eligible to be
         transitioned to running.
-        
+
         Internal Notes:
         A consequence of our single threaded server handling both user APIs and
-        executor/assistent APIs setup is that our server can't respond to an 
+        executor/assistent APIs setup is that our server can't respond to an
         executor/assistent thrift call if the server is stuck waiting on this
         thrift call to complete, so we go with an asynchronous model of work deferral
         """

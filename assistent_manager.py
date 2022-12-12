@@ -34,7 +34,7 @@ class Assistent:
     manager dies, the assistent manager will still be alive and happily report
     back to the container manager when the container manager comes back online
 
-    The various things it can do:
+    The various things it could do:
     1) log handling for the container
     2) ulimit configuration for the container
     3) cgroup manipulation of the container
@@ -51,9 +51,14 @@ class Assistent:
     container workload
 
     Exercise:
-    1) we should re-direct the container's stderr/stdout to a file or elsewhere
-    2) Support the rest of the suggestions above
-    3) support using clone(2) (possibly via c++/go/rust rewrite)
+    1) Redirect the container's stderr/stdout to a file or elsewhere
+    2) assistent manager should be daemonized or simply executed as transient
+    systemd unit which will do the daemonization for us
+    3) The assistent manager should go to /{parentCgroupPath}/{ctag}/assistent
+    and the container should go to /{parentCgroupPath}/{ctag}/workload
+    This is easier to do once clone(2) is supported
+    4) Support the rest of the suggestions above
+    5) support using clone(2) (possibly via c++/go/rust rewrite)
     """
 
     def __init__(self, port: int, tag: str, parentCgroupPath: str):
@@ -90,9 +95,6 @@ class Assistent:
         Prepare the container settings, such as additional cgroup restrictions
         just for the container, filesystem preparations, ulimit adjustments,
         log handling, etc
-
-        NOTE: This is much easier to do with https://lwn.net/Articles/807882/
-        which requires clone(2)
         """
         cmdArgs = [self.info.command.cmd] + self.info.command.arguments
         cmd = generateUnshareCommand(cmdArgs, isContainer=True)
@@ -127,7 +129,7 @@ class Assistent:
         If we can't connect to the container manager, just ignore it
 
         Exercise:
-        1) there should be a timeout for how long an assistent will wait
+        1) There should be a timeout for how long an assistent will wait
         for the manager to come back on line; something long like 12hrs
         to avoid brief manager flakiness
         """

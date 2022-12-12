@@ -62,7 +62,7 @@ if __name__ == "__main__":
         print("CManager: Spawning Executor process")
         pid = os.fork()
         if pid == 0:
-            # child should invoke executor funtion (and not return)
+            # child should invoke executor function (and not return)
             Executor(args.port, args.parent_cgroup, args.assistent_manager_bin).driveState()
             # if we reached here something bad happened
             sys.exit(1)

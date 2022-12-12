@@ -23,18 +23,20 @@ class Executor:
     should be offloaded to the executor thread/process to perform.
     Exercises:
     1) Re-write to use clone(2)
-    2) If the executor restarts, and a previously existing assistent manager dies,
+    2) If an assistent manager doesn't report back after a certain period
+    of time, transition it to LOST state (as the assistent manager can't do it)
+    3) If the executor restarts, and a previously existing assistent manager dies,
     its cgroup won't be cleaned up because the executor is no longer the parent
     and will not receive the sigchld. We should periodically clean up empty,
     unmanaged cgroups
-    3) OOM kills can be detected by reading the memory.events file in the assistent
-    manager's cgroup
-    4) If the server and executor is down and a previosuly existing assistent manager
-    dies, it's exit information is lost. If the assistent manager was executed as a
+    4) OOM kills can be detected by reading the memory.events file in the assistent
+    manager's cgroup.
+    5) If the server and executor is down and a previously existing assistent manager
+    dies, its exit information is lost. If the assistent manager was executed as a
     transient systemd unit, systemd would keep track of exit information until
     something resets the state of the unit (similar to how processes need wait(2)
     for the process to be cleared from the pid table)
-    5) We should support preparing a filesystem that can we can use as the base root
+    6) We should support preparing a filesystem that can we can use as the base root
     of the container and chroot-pivot-root in to it (unshare supports this)
     """
 
@@ -75,7 +77,7 @@ class Executor:
 
         def prepareChild(cpid, cgPath, ctag):
             """
-            Set up cgroups, resource restrictions, etc here
+            Set up cgroups, resource restrictions, etc for the assistent manager
             """
             # parent creates container cgroup "/{cgPath}/{ctag}"
             dirName = os.path.join(cgPath, ctag)
@@ -97,7 +99,9 @@ class Executor:
             # This is the child process
             waitForParent(r, w, tag)
             # exec assistent manager in a new mount ns
-            cmd = generateUnshareCommand([self.amBinPath, str(self.port), tag, self.cgroupParentPath])
+            cmd = generateUnshareCommand(
+                [self.amBinPath, str(self.port), tag, self.cgroupParentPath]
+            )
             os.execv(cmd[0], cmd)
             # if we reach here something bad happened
             sys.exit(1)
@@ -106,10 +110,7 @@ class Executor:
             os.close(r)
             # should not be possible
             assert pid not in self.children
-            # track cpid and it's assistent manager tag
-            # NOTE cpid is actually the pid of unshare that lives until
-            # its child process (the assistent) dies and exits the same way
-            # Using clone(2) instead of unshare(1) is the ideal way to avoid this
+            # track cpid and its assistent manager tag
             self.children[pid] = tag
             prepareChild(pid, self.cgroupParentPath, tag)
             # parent writes to the pipe

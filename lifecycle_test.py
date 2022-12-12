@@ -20,11 +20,11 @@ from container_manager.ttypes import (
 )
 
 """ 
-    NOTE: we re-create client every call because we have a single threaded
-    thrift server for this toy project and our user API and internal API
-    are handled by the same thrift handler, meaning only one entity can
-    connect at a time, but there are usually three entities invovled in the 
-    life cycle of a container in our design
+NOTE: we re-create client every call because we have a single threaded
+thrift server for this toy project and our user API and internal API
+are handled by the same thrift handler, meaning only one entity can
+connect at a time, but there are usually three entities invovled in the 
+life cycle of a container in our design
 """
 
 

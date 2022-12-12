@@ -29,11 +29,21 @@ from container_manager.ttypes import (
 
 
 class TestServerAPI(unittest.TestCase):
+    """
+    Create a monolithic test since we're sharing a server across all tests and
+    state matters. We will manually drive the state machine through various
+    stages without an executor during the tests
+    NOTE: This is more of an integration test, but I wanted to use a quick
+    out of the gate framework for setup/assertions
+    """
+
     @classmethod
     def setUpClass(cls):
         # start server with no executor on a port
         port = 5050
-        cls._serverProc = subprocess.Popen(["/usr/bin/python3", "main.py", "--port", str(port), "--no-executor"])
+        cls._serverProc = subprocess.Popen(
+            ["/usr/bin/python3", "main.py", "--port", str(port), "--no-executor"]
+        )
         # wait for server to be up
         waitForServer(port)
         # Make a client connection and re-use it across the class since
@@ -78,16 +88,6 @@ class TestServerAPI(unittest.TestCase):
         self.assertEqual(response.status, expectedResponse)
 
     def testStateMachine(self):
-        """
-        Create a monolithic test since we're sharing a server across all tests and
-        state matters. Also due to a lack of time, we avoid making an integration framework
-
-
-        We will manually drive the state machine through various stages without an executor
-        NOTE: Before running this test in another window (or in the background) spawn a
-        container manager on port 9090 e.g $(python3 main.py --port 9090)
-        """
-
         # empty state should return no container infos
         self._checkContainerInfos({}, 0)
 

@@ -59,10 +59,11 @@ struct Command {
     2: list<string> arguments
 }
 
+// max pid value is 2^22 (see man 5 proc) which fits in 32 bits
 struct AssistentManagerInfo {
     1: string tag // the identifier of the container to manage
     2: Command command // command the assistent  should execute
-    3: i32 pid // max pid value is 2^22 (see man 5 proc) which fits in 32 bits
+    3: i32 pid // pid of the assistent
     4: i32 workloadPid // pid of the container workload (aka command's pid)
     5: string cgroupPath // path of the assistent managers cgroup
 }
