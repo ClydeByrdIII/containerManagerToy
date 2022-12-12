@@ -49,12 +49,17 @@ We will get back to the file system isolation system calls support in a later ro
 
 ## Container Manager Building Blocks
 
-This is no means official, but I like to think of the container manager as three entities, the state machine, the executor, and the assistent manager
+This is no means official, but I like to think of the container manager as three classes of entities, the state machine, the executor, and the assistent manager. I'd say there's typically one state machine, and one or more of each an executor and assistent manager.
+
+![entities](https://user-images.githubusercontent.com/1676822/206999566-da8fa727-156c-4cf9-beb1-e3e1baf743a2.png)
+
 
 ### The State Machine
 
 Just like systemd units or Linux processes, containers too can be in a finite amount of states. How many and which states is an implementation detail.
 Check out [solaris zone states](https://en.wikipedia.org/wiki/Solaris_Containers) for a real example.
+
+We wrap our state machine in a (thrift) server. The server itself only concerns itself with maintaining metadata around containers and their lifetimes.
 
 In our implementation we support the following state definitions:
 * READY: A container can be "ready" to be run (aka runnable) meaning the container manager has prepared everything for the container to be invoked
@@ -67,7 +72,73 @@ The state machine transitions can be modeled like so:
 
 ![state_machine](https://user-images.githubusercontent.com/1676822/206984191-5c827f10-ea0c-4d61-9fa0-4d85920c1f42.png)
 
+### The Executor
 
+Is simply one or more threads of execution doing the deferred work that the state machine can't or shouldn't do itself.
+We want the server/state machine to be fast, so the server should just queue work up for the executor to do. Not unlike the top and bottom half of linux interrupt handlers.
+
+In our implementation we have the executor perform container preparations, cgroup manipulation, fork/execing.
+The executor could be local threads or even another process, heck with some elbow grease, systemd could perform the duties of an executor.
+
+### The Assistent Manager
+
+In the industry this is called the [shim](https://github.com/containerd/containerd/blob/main/runtime/v2/README.md). The container manager may supervise all containers, but even managers sometimes have assistents that make sure everything is running smoothly, when the manager isn't around.
+
+This is one of the purposes of the assistent manager. It will onboard (start) the container in to the right cgroups, privileges, starting point, etc.
+It will live even when the container manager is dead or temporarily missing. It can report to the manager the status of the container. It can stop the container when requested by the manager and so much more that the container manager itself can't or shouldn't do.
+
+## Implementation
+
+For this project there were some design decisions at play that greatly influences the system.
+Surprisingly the language is not the biggest issue (although it caused some inconviences).
+
+### 1 ) The desire to get something correct and running 
+This played the biggest part. In the ensuing mini-sections I'll detail where this applied.
+
+### 2) Python was the chosen language
+Honestly, I'd have preferred to write this in c++, rust, or go in that order.
+However, in my experience, the state machine is not often the bottle neck in container management.
+Python was much quicker to implement and iterate on, while requiring the least set up overhead.
+The current feature set of all three entities are minimal enough, where choosing python only adds annoyance to some house keeping duties
+when one can't find python bindings for certain system calls like clone(2). While not impossible to use these system calls in python, they're much more cumbersome than a language like c/c++/rust.
+
+### 3) The API server is single threaded
+
+Thrift's Simple TServer implementation has a single thread for connections and processing.
+This means only one client can connect at a time. 
+This is great for showing how transitions in state are made and what makes the transitions at what times.
+However it is rather annoying since it requires the multiple entities to be cooperative and not block each other inadvertently, which is something you can't guarantee in practice.
+
+Given more time, I would make a multi-threaded/process state machine that is thread/async-safe to avoid such problems.
+
+For now every client must close the connection after their call in order for the other entities to progress the state machine.
+
+### 4) File system isolation is not supported
+
+Due to a lack of time, file system isolation using chroot(2) / pivot-root(2) / mount (2) MS_MOVE was not implemented, but could be done simply using
+a cached os tree (like alpine linux or some minimal distribution), creating a unique root tree for each container, copying the os tree to each root, and then pivot rooting the container to that root tree. Similar to what I did in my slides.
+
+### 5) These are application containers
+
+This means that it's the responsibility of the user to supply commands that will probably handle signals.
+Due to containers running in their own pid namespace, their command will run as pid 1 in that namespace, meaning it will by default ignore all signals.
+The user will need code to explicitly re-instate signals for it to be able to gracefully shutdown.
+
+This is a common problem in docker, solved in various ways, one of which is [dumb-init](https://engineeringblog.yelp.com/2016/01/dumb-init-an-init-for-docker.html)
+
+### 6) Container metadata is not persisted across restarts
+
+A container manager should be robust and have the ability to recover state on recovery/restart.
+Even in situations where all the state is wiped, it could be beneficial for the container manager to detect rogue containers and clean them up.
+In our implementation we deferred persisting metadata due to time, but we did implement a mechanism for assistent managers to ABORT when not recognized by the container manager
+
+### 7) Nothing initiates LOST state transitions (yet)
+
+Due to time, LOST state transitioning was not implemented. There's many reasons for a assistent manager to go unresponsive. Detecting such cases is the responsibility of the executor, since the assistent can't do so on it's own (otherwise it wouldn't be LOST).
+
+### 8) There is one thrift handler for all entities
+
+The scheduler, executor, and assistent manager all use different thrift calls. And for the latter 2, they should use unix domain sockets for communication since they should all be local. They're currently one handler and TCP sockets because of time.
 
 ## Testing
 
