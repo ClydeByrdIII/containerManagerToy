@@ -48,22 +48,22 @@ def containerLifeCycle1():
         )
         client.startContainer(request)
 
-    # # wait a little for the container to reach running
-    # assert waitFor(containerInState, 9090, tag, ContainerState.RUNNING, timeout=5)
+    # wait a little for the container to reach running
+    assert waitFor(containerInState, 9090, tag, ContainerState.RUNNING, timeout=5)
 
-    # print(f"stopping container '{tag}'!")
-    # with thriftClient(9090) as client:
-    #     request = StopContainerRequest(tag)
-    #     client.stopContainer(request)
+    print(f"stopping container '{tag}'!")
+    with thriftClient(9090) as client:
+        request = StopContainerRequest(tag)
+        client.stopContainer(request)
 
-    # # wait a little for container to reach DEAD
-    # assert waitFor(containerInState, 9090, tag, ContainerState.DEAD, timeout=5)
+    # wait a little for container to reach DEAD
+    assert waitFor(containerInState, 9090, tag, ContainerState.DEAD, timeout=5)
 
-    # print(f"deleting container '{tag}'!")
+    print(f"deleting container '{tag}'!")
 
-    # with thriftClient(9090) as client:
-    #     request = DeleteContainerRequest(tag)
-    #     client.deleteContainer(request)
+    with thriftClient(9090) as client:
+        request = DeleteContainerRequest(tag)
+        client.deleteContainer(request)
 
 
 def containerLifeCycle2():
@@ -141,5 +141,5 @@ def containerLifeCycle3():
 
 if __name__ == "__main__":
     containerLifeCycle1()
-    # containerLifeCycle2()
-    # containerLifeCycle3()
+    containerLifeCycle2()
+    containerLifeCycle3()
